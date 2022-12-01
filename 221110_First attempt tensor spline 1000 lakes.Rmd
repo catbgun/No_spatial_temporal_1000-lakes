@@ -38,9 +38,8 @@ samvif <- function(mod){
 }
 ```
 
-
 ```{r Load Packages}
-Packages <- c("mgcv","ggplot2", "dplyr", "viridis", "bestNormalize")
+Packages <- c("mgcv","ggplot2", "dplyr", "viridis", "bestNormalize", "GGally", "bestNormalize")
 lapply(Packages, library, character.only = TRUE)
 
 #virdis for colour https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html
@@ -49,7 +48,6 @@ lapply(Packages, library, character.only = TRUE)
 ```{r Load data}
 dfx <- read.table("WChem_1000 lakes data 1995 and 2019.txt", sep = "\t", header = TRUE)
 dfy <- read.table("Runoff_1000lakes_catchment characteristics.txt", sep = "\t", header = TRUE)
-
 df <- merge(dfx, dfy, by="Station.Code")
 ```
 
@@ -70,8 +68,7 @@ df1 <- subset(df, anthro < 1)
 - forest/forest+natural_not_forest
 - peat
 - lake to catchment area 
-- water flow? Available? Ask øyvind
-
+- water flow
 ```{r Create new variables}
 df1$forest_to_not <- df1$forest/(df1$forest+df1$natural_not_forest)
 ```
@@ -80,9 +77,9 @@ df1$forest_to_not <- df1$forest/(df1$forest+df1$natural_not_forest)
 Looking for
 - outliers
 - collinearity between variables
+https://www.r-graph-gallery.com/89-box-and-scatter-plot-with-ggplot2.html
 ```{r Explore the data visually}
 #Looking for outliers by different groups of variables
-# https://www.r-graph-gallery.com/89-box-and-scatter-plot-with-ggplot2.html
 ggplot(df1, aes(x=Region.4, y=X2019_TOC)) +
     geom_boxplot() +
     geom_jitter(color="black", size=0.4, alpha=0.9)+
@@ -139,6 +136,7 @@ Looking at the distribution of the data
 - only predictor
 - Valiente et al 2022 used transformation on all variables
 - what about scaling? e.g. divide latitude by 10
+- or simply find the right family in the gam model
 ```{r Histogram of variables}
 hist(log(df1$X2019_DOC.C))
 hist(df1$X2019_DOC.C)
@@ -150,119 +148,81 @@ hist(df1$runoff_mm.yr)
 ```
 
 ```{r Checking data distribution}
-library(bestNormalize)
 bestNormalize(df1$X2019_DOC.C)
 bestNormalize(df1$peat)
 ```
 
-
-INFOR ON PARAMETER SELECTION GAM
-- if contribution is mainly due to interaction terms, te() provides better results. If not, ti() is more stable. 
-- different types of smooth functions
-https://osf.io/wgc4f/wiki/mgcv:%20model%20selection/
-Info on model selection:
-- recommend using method =REML
-- not always correct to set the degrees of freedom of smooth (k). Could check to see its not too low.
+INFO ON PARAMETER SELECTION GAM
+- interaction with same scale, use s()
+- only interaction at different scales, use te()
+- interactions and signe parameters on different scales, use ti()
+- recommend using method =REML or ML
+- not always correct to set the degrees of freedom of smooth (k). Could check to see its not too low. Make suffiiently high. Could be as high as 100
 - log link will restrict negative values
 - family Gamma since left skewed?
+- family scat() less sensitive to extremes (?)
+- select =TRUE should be applied
+- spline (bs) should be ds or tp
+https://noamross.github.io/gams-in-r-course/chapter3
+https://osf.io/wgc4f/wiki/mgcv:%20model%20selection/
+https://noamross.github.io/gams-in-r-course/chapter3
 
-```{r}
-TOC_all1 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds"), 
-                family=scat(),
-                select=TRUE,
-                data=df1)
-TOC_all2 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds")+
-                  s(forest_to_not)+s(peat)+s(Res_time_years)+s(lake_catchm_.)+s(runoff_mm.yr), 
-                family=scat(),
-                select=TRUE,
-                data=df1)
-TOC_all3 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds")+
-                  s(forest_to_not)+s(peat)+s(Res_time_years)+s(lake_catchm_.)+s(runoff_mm.yr), 
-                family=scat(),
-                select=TRUE,
-                data=df1)
-TOC_all4 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds")+
-                  s(forest_to_not, bs="ds")+s(peat, bs="ds")+s(Res_time_years, bs="ds")+
-                  s(lake_catchm_., bs="ds")+s(runoff_mm.yr, bs="ds"), 
-                family=scat(),
-                select=TRUE,
-                data=df1)
+PROCEDURE
+- first make simple model including significant terms
+- adjust k
+- include interactions to see if improvement
 
-TOC_all5 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds")+
-                  s(forest_to_not, bs="ds")+s(peat, bs="ds")+s(Res_time_years, bs="ds")+
-                  s(lake_catchm_., bs="ds")+s(runoff_mm.yr, bs="ds")+
-                  te(forest_to_not, peat), 
-                family=scat(),
-                select=TRUE,
-                data=df1)
+MODEL CHECKING
+- in summary.gam the p values are of the null hypothesis of a zero effect of the indicated spline. There values relate to the F statistic in the table produced by summary.gam,
+- in gam.check the p values are for the test of the null hypothesis that the basis dimension used is of sufficient size. I.e. these p values relate to the value labelled k-index in the table produced by gam.check
+- compare models using AIC. The model which has lower AIC value than the other is better than the other in the sense that it is less complex but still a good fit for the data.
 
-TOC_all6 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds")+
-                  s(forest_to_not, bs="ds")+s(peat, bs="ds")+s(Res_time_years, bs="ds")+
-                 s(runoff_mm.yr, bs="ds")+
-                  te(forest_to_not, peat), 
-                family=scat(),
-                select=TRUE,
-                data=df1)
 
-TOC_all7 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds")+
-                  s(forest_to_not, bs="ds")+s(peat, bs="ds")+s(Res_time_years, bs="ds")+
-                 s(runoff_mm.yr, bs="ds"), 
+```{r Decide on the major settings}
+#using all parameters with no transformation. Using ts since faster than ds
+TOC1 <- gam(X2019_DOC.C ~ s(latitude.x, longitude.x)+
+                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+                  s(lake_catchm_.)+s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-
-TOC_all7x <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="tp")+
-                  s(forest_to_not, bs="tp")+s(peat, bs="tp")+s(Res_time_years, bs="tp")+
-                 s(runoff_mm.yr, bs="tp"), 
+summary(TOC1)
+gam.check(TOC1)
+#From this simple model it is clear that lake_catchm_. is not signfiicant while the others are. R2-adj = 0.77
+TOC2 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x)+
+                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+                  s(lake_catchm_.)+s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-
-#Tensorspline or duschon spline
-AIC(TOC_all7, TOC_all7x)
-#Now check the distribution, link=log and remove log
-TOC_all7y <- gam(X2019_DOC.C ~ s(latitude.x, longitude.x, bs="tp")+
-                  s(forest_to_not, bs="tp")+s(peat, bs="tp")+s(Res_time_years, bs="tp")+
-                 s(runoff_mm.yr, bs="tp"), 
-                family=scat(link="log"),
-                type="response",
-                select=TRUE,
-                data=df1)
-
-TOC_allz <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="tp")+
-                  s(forest_to_not, bs="tp")+s(peat, bs="tp")+s(Res_time_years, bs="tp")+
-                 s(runoff_mm.yr, bs="tp"), 
-                family=scat(link="identity"),
-                type="response",
-                select=TRUE,
-                data=df1)
-
-TOC_alle <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="tp")+
-                s(forest_to_not, bs="tp")+s(peat, bs="tp")+s(Res_time_years, bs="tp")+
-                s(runoff_mm.yr, bs="tp"), 
+summary(TOC2)
+gam.check(TOC2)
+#When log-transforming the response, lake_catchm_. is signfiicant at p=0.05. R2-adj = 0.856. Decides to keep log-transformation and remove lake_catchm
+TOC3 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x)+
+                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+                  s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-TOC_allee <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds")+
-                  s(forest_to_not, bs="ds")+s(peat, bs="ds")+s(Res_time_years, bs="ds")+
-                 s(runoff_mm.yr, bs="ds"), 
+summary(TOC3)
+gam.check(TOC3)
+
+AIC(TOC1, TOC2, TOC3)
+
+#Happy with the 3rd model. From gam.check() a few of the variables are significant while we want them not to be. Can help to increase k. 
+TOC4 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100)+
+                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+                  s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-
-summary(TOC_allee)
-gam.check(TOC_allee)
-
-
-AIC(TOC_alle, TOC_allee)
-
-
-plot(df1$forest_to_not, df1$peat)
-# s(lake_catchm_., bs="ds")
+gam.check(TOC4)
+summary(TOC4)
+#Now it looks good!
 
 #would gamma be restricted to only positive?
 # hva betyr det for oss å bruke bs="ds"?
@@ -271,132 +231,72 @@ plot(df1$forest_to_not, df1$peat)
 #Parameter + parameter-interaction selection
 # k adjustment
 
-plot(TOC_all7y, pages = 1, all.terms = TRUE)
-summary(TOC_all7y)
-gam.check(TOC_all7y)
-AIC(TOC_all5, TOC_all4, TOC_all6, TOC_all7)
-plot(TOC_all7, scheme=3)
-
 ```
+
+
+```{r See effect frm changing certain settings: log}
+#link = log. If to be used we need to remove log from y
+#TOC5 <- gam(X2019_DOC.C ~ s(latitude.x, longitude.x, k=100)+
+#                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+#                  s(runoff_mm.yr),
+#                family=scat(link="log"),
+#                type="response",
+#                select=TRUE,
+#                data=df1)
+#gam.check(TOC5)
+#summary(TOC5)
+#AIC(TOC4, TOC5)
+```
+
+```{r See effect frm changing certain settings: ds versus tp}
+#TOC6 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100, bs="ds")+
+#                  s(forest_to_not, bs="ds")+s(peat, bs="ds")+s(Res_time_years, bs="ds")+
+#                  s(runoff_mm.yr, bs="ds"),
+#                family=scat(),
+#                type="response",
+#                select=TRUE,
+#                data=df1)
+#gam.check(TOC6)
+#summary(TOC4)
+#AIC(TOC4, TOC6)
+#Takes so very long time to run with "ds"  in each. Did not wait for it to finish. 
+```
+
+Make plot to evaluate the wiggliness. 
+
+
 
 To decide on interactions and variables
 ```{r}
-TOC_alle <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, bs="ds", k=200)+
-                s(forest_to_not, bs="ds", k=15)+s(peat, bs="ds", k=20)+s(Res_time_years, bs="ds", k=15)+
-                s(runoff_mm.yr, bs="ds"), 
+TOC7 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100)+
+                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+                  s(runoff_mm.yr)+
+              ti(forest_to_not, peat),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-gam.check(TOC_allee)
-plot(TOC_alle)
 
+#TOC8 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100)+
+#                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+#                  s(runoff_mm.yr)+
+#                ti(forest_to_not, peat)+
+#                ti(Res_time_years, runoff_mm.yr),
+#                family=scat(),
+#                type="response",
+#                select=TRUE,
+#                data=df1)
+
+#interaction between res time and runoff is not significant
+gam.check(TOC8)
+summary(TOC8)
+
+AIC(TOC7, TOC5)
+#Model7, with interaction forest and peat, has much lower AIC than without
+plot(TOC7, page=2)
 ```
 
-
-```{r}
-# Pick the best one automatically
-(BNobject <- bestNormalize(x))
-```
-
-
-
-The point is to compare the AIC values of different models and the model which has lower AIC value than the other is better than the other in the sense that it is less complex but still a good fit for the data.
-
-
-
-
-```{r}
-
-#Må finne riktig distribusjon av dataene
-#Lag først enkel modell deretter legg til mulige interkasjoner
-#Justere k?
-TOC_all1 <- gam(X2019_DOC.C ~ s(latitude.x, longitude.x, bs="ds") + s(forest_to_not) + s(altitude)+s(peat)+s(lake_catchm_.)+s(runoff_mm.yr)+s(Res_time_years), data=df1)
-TOC_all2 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + s(forest_to_not) + s(altitude)+s(peat)+s(lake_catchm_.)+s(runoff_mm.yr)+s(Res_time_years), data=df1)
-
-
-
-gam.check(TOC_all2)
-AIC(TOC_all1, TOC_all2)
-```
-
-
-
-
-```{r Create a list of models to compare}
-#specify the following? method="REML", family=Gamma(link="identity"
-TOC <-list()
-      TOC[[1]]<- gam(X2019_DOC.C ~ te(latitude, longitude) + s(forest_to_not) + s(altitude)+s(peat)+s(lake_catchm_.)+s(runoff_mm.yr)+s(Res_time_years), data=df1)
-      TOC[[2]]<- gam(X2019_DOC.C ~ te(latitude, longitude) + s(forest_to_not) + s(altitude)+s(peat)+lake_catchm_., data=df1)
-
-#First including all and removing those not significant, one by one, keeping all s   
-TOC_all1 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + s(forest_to_not) + s(altitude)+s(peat)+s(lake_catchm_.)+s(runoff_mm.yr)+s(Res_time_years), data=df1)
-#TOC_all1x <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + s(forest_to_not) + #s(altitude)+s(peat)+lake_catchm_.+s(runoff_mm.yr)+s(Res_time_years), data=df1)
-TOC_all2 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + s(forest_to_not) + s(altitude)+s(peat)+s(runoff_mm.yr)+s(Res_time_years), data=df1)
-
-TOC_all3 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + s(forest_to_not) + s(altitude)+s(peat)+s(Res_time_years), data=df1, method="REML")
-#, family=Gamma)
-
-TOC_all4 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + te(forest_to_not, altitude) + s(peat)+s(Res_time_years), data=df1, method="REML", family=Gamma(link="identity"))
-
-TOC_all5 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + te(forest_to_not, altitude) + s(peat)+s(Res_time_years), data=df1, select=TRUE, method="REML", family=Gamma(link="identity"))
-
-TOC_all6 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + s(forest_to_not)+ s(altitude) + s(peat)+s(Res_time_years), data=df1, select=TRUE, method="REML", family=Gamma(link="identity"))
-
-TOC_all7 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + te(forest_to_not, altitude)+s(forest_to_not)+ s(altitude) + s(peat), data=df1, select=TRUE, method="REML", family=Gamma(link="log"))
-
-
-TOC_all8 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + te(forest_to_not, altitude)+ s(altitude) + s(peat), data=df1, select=TRUE, method="REML", family=Gamma(link="log"))
-
-TOC_all9 <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + te(forest_to_not, altitude)+ s(peat), data=df1, select=TRUE, method="REML", family=Gamma(link="log"))
-
-
-TOC_all9x <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + s(altitude)+ s(peat), data=df1, method="REML", family=Gamma(link="log"))
-
-TOC_all9z <- gam(X2019_DOC.C ~ te(latitude.x, longitude.x) + te(forest_to_not, peat)+s(altitude), data=df1, method="REML", family=Gamma(link="log"))
-
-#QUESTIONS
-#- should we use the "select=TRUE= or the individual alternative to that. how to decide on interactions? how to improve the model based on residual plots? How to plot nicely for norway
-
-
-
-
-
-
-
-AIC(TOC_all8, TOC_all9)
-plot(TOC_all7, sceme=2)
-
-gam.check(TOC_all9z)
-summary(TOC_all9x)
-
-plot(TOC_all9z, 1)
-
-
-#PLOTTTTT
-plot(TOC_all9,pages=3,seWithMean=TRUE) 
-
-
-plot(TOC_all5, rug = F, shade = T, main = "Visualise the need for s()", ylab = "")
-plot(TOC_all9, scheme=4)
-
-model.sel(Hg.Ma,rank = AIC ) 
-```
-
-Model testing
-in summary.gam the p values are of the null hypothesis of a zero effect of the indicated spline. There values relate to the F statistic in the table produced by summary.gam,
-in gam.check the p values are for the test of the null hypothesis that the basis dimension used is of sufficient size. I.e. these p values relate to the value labelled k-index in the table produced by gam.check
-```{r Checking and Validating the model}
-#1) Residual plots
-gam.check(TOC_all, rep=1000)
-gam.check(TOC_all)
-#2) Smoothing basis dimension
-#3) concurvity
-
-```
-
-
-
+Plotting model in map with ggplot - have not managed successfully
 could be of use(?): https://mfasiolo.github.io/mgcViz/articles/mgcviz.html
 ```{r Plotting the model in map with ggplot}
 library(tidymv)
@@ -413,49 +313,5 @@ coef(TOC_all)
 # https://mfasiolo.github.io/mgcViz/articles/mgcviz.html
 library(rgl)
 plotRGL(sm(b, 1), fix = c("z" = 0), residuals = TRUE)
-```
-
-
-
-```{r}
-# Fit the model: https://noamross.github.io/gams-in-r-course/chapter3
-mod2d <- gam(X2019_DOC.C ~ s(latitude, longitude), data = df, method = "REML")
-# Inspect the model
-summary(mod2d)
-coef(mod2d)
-
-mod2da <- gam(X2019_DOC.C ~ s(latitude, longitude) + s(altitude), 
-              data = df, method = "REML")
-
-summary(mod2da)
-coef(mod2da)
-
-mod3da <- gam(X2019_DOC.C ~ s(latitude, longitude) + s(altitude)+s(lake_area_km2), 
-              data = df, method = "REML")
-
-summary(mod3da)
-coef(mod3da)
-
-mod4da <- gam(X2019_DOC.C ~ ti(latitude, longitude) + s(altitude)+s(lake_area_km2), 
-              data = df, method = "REML")
-
-#to separate inteaction from induvidual
-tensor_mod2 <- gam(cadmium ~ s(x, y) + s(elev) + ti(x, y, elev), 
-                   data = meuse, method = "REML")
-
-mod5da <- gam(X2019_DOC.C ~ s(latitude, longitude) + s(altitude)+ ti(latitude, longitude, altitude), 
-              data = df, method = "REML")
-
-summary(mod5da)
-plot(mod5da, scheme=2)
-plot(model, scheme=1, pages=1)
-coef(mod3da)
-```
-
-
-Try to use ggplot to plot
-```{r plot}
-plot(model, scheme = 2)
-
 ```
 
