@@ -1,7 +1,7 @@
 ---
-title: "No_spatial_temporal_1000"
+title: "221203_Girst attempt_NO3_1000 lakes"
 output: html_document
-date: "2022-11-10"
+date: "2022-12-03"
 editor_options: 
   chunk_output_type: console
 ---
@@ -39,7 +39,7 @@ samvif <- function(mod){
 ```
 
 ```{r Load Packages}
-Packages <- c("mgcv","ggplot2", "dplyr", "viridis", "bestNormalize", "GGally", "bestNormalize")
+Packages <- c("mgcv","ggplot2", "dplyr", "viridis", "bestNormalize", "GGally", "bestNormalize", "rnaturalearth")
 lapply(Packages, library, character.only = TRUE)
 
 #virdis for colour https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html
@@ -80,11 +80,11 @@ Looking for
 https://www.r-graph-gallery.com/89-box-and-scatter-plot-with-ggplot2.html
 ```{r Explore the data visually}
 #Looking for outliers by different groups of variables
-ggplot(df1, aes(x=Region.4, y=X2019_TOC)) +
+ggplot(df1, aes(x=Region.4, y=X2019_NO3.N)) +
     geom_boxplot() +
     geom_jitter(color="black", size=0.4, alpha=0.9)+
     scale_y_continuous(limits = c(), labels = fmt_dcimals(1))+
-    labs(title = "", y ="TOC (mg C/L)")
+    labs(title = "", y ="NO3-N (ug/L)")
 
 ggplot(df1, aes(x=Region.4, y=runoff_mm.yr)) +
     geom_boxplot() +
@@ -96,27 +96,35 @@ ggplot(df1, aes(x=Region.4, y=runoff_mm.yr)) +
 Collinearity
 - checking for collinearity
 - highly corrleates not in same model
+
+For NO3-N:
+  Lengde-breddemeter
+  Høyde
+  (skog/skog+natural_not_forest)
+  Lake-catchment area
+  Vannføring
+
 ```{r collinearity}
 library(GGally)
-df2 <- subset(df1, select=c(
-                            latitude.x,longitude.x, altitude,
-                            forest_to_not, peat,
+df2 <- subset(df1, select=c(latitude.x,longitude.x, altitude,
+                            forest_to_not,
                             lake_catchm_., 
                             Res_time_years, runoff_mm.yr))
-ggpairs(df2,title="TOC")
+ggpairs(df2,title="NO3-N")
+# Can we ignore those below 0.5?
+#ALtidtude correlates strongly with forest-parameter, and altitude shoule be excluded from model
+#Latitude and longiute strongly correlated
 ```
 
 Possible collinearity between
 - lat and long
 - forest/forest_to_not.. and altitude (0.548)
-
 ```{r Mapping the observations}
-library(rnaturalearth)
 world <- ne_countries(scale = "medium", returnclass = "sf")
 ggplot(data = world, zoom=4) +
   geom_sf()+
   coord_sf(xlim = c(2, 30), ylim = c(58, 71))+
-  geom_point(aes(x = longitude.x, y = latitude.x, colour=X2019_TOC), 
+  geom_point(aes(x = longitude.x, y = latitude.x, colour=X2019_NO3.N), 
              data=df1, size =2)
 #  labs(title = "", x = "", y = "")+
 #  theme(axis.text.x = element_text(angle=0, vjust=1, size = 12),
@@ -138,17 +146,17 @@ Looking at the distribution of the data
 - what about scaling? e.g. divide latitude by 10
 - or simply find the right family in the gam model
 ```{r Histogram of variables}
-hist(log(df1$X2019_DOC.C))
-hist(df1$X2019_DOC.C)
+hist(df1$X2019_NO3.N)
+hist(log(df1$X2019_NO3.N))
+hist(orderNorm(df1$X2019_NO3.N))
 hist(df1$forest_to_not)
-hist(df1$peat)
 hist(df1$Res_time_years)
 hist(df1$lake_catchm_.)
 hist(df1$runoff_mm.yr)
 ```
 
 ```{r Checking data distribution}
-bestNormalize(df1$X2019_DOC.C)
+bestNormalize(df1$X2019_NO3.N)
 bestNormalize(df1$peat)
 ```
 
@@ -180,49 +188,65 @@ MODEL CHECKING
 
 ```{r Decide on the major settings}
 #using all parameters with no transformation. Using ts since faster than ds
-TOC1 <- gam(X2019_DOC.C ~ s(latitude.x, longitude.x)+
-                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+NO3.1 <- gam(X2019_NO3.N ~ s(latitude.x, longitude.x)+
+                  s(forest_to_not)+s(Res_time_years)+
                   s(lake_catchm_.)+s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-summary(TOC1)
-gam.check(TOC1)
-#From this simple model it is clear that lake_catchm_. is not signfiicant while the others are. R2-adj = 0.77
-TOC2 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x)+
-                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+summary(NO3.1)
+gam.check(NO3.1)
+
+#From first model, lake_catchment not significant. R-adj = 0.414
+NO3.2 <- gam(log(X2019_NO3.N) ~ s(latitude.x, longitude.x)+
+                  s(forest_to_not)+s(Res_time_years)+
                   s(lake_catchm_.)+s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-summary(TOC2)
-gam.check(TOC2)
-#When log-transforming the response, lake_catchm_. is signfiicant at p=0.05. R2-adj = 0.856. Decides to keep log-transformation and remove lake_catchm
-TOC3 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x)+
-                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+summary(NO3.2)
+gam.check(NO3.2)
+#When log-transforming the response, lake_catchm_. is signfiicant at p<0.05. R2-adj = 0.565. Decides to keep log-transformation and not to #NO3.3 <- gam(log(X2019_NO3.N) ~ s(latitude.x, longitude.x)+
+                  s(forest_to_not)+s(Res_time_years)+
                   s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-summary(TOC3)
-gam.check(TOC3)
 
-AIC(TOC1, TOC2, TOC3)
+summary(NO3.3)
+gam.check(NO3.3)
+
+AIC(NO3.1, NO3.2, NO3.3)
+#Very similar fit from removing lake_catchm, perhaps should be removed? Keep for now given slightly better R-adj and AIC.
+
 
 #Happy with the 3rd model. From gam.check() a few of the variables are significant while we want them not to be. Can help to increase k. 
-TOC4 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100)+
-                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+NO3.4 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100)+
+                  s(forest_to_not, k=15)+s(Res_time_years)+
+                  s(lake_catchm_.)+
                   s(runoff_mm.yr),
                 family=scat(),
                 type="response",
                 select=TRUE,
                 data=df1)
-gam.check(TOC4)
-summary(TOC4)
-#Now it looks good!
+gam.check(NO3.4)
+summary(NO3.4)
+#Now it looks good with regards to gam.check() but now lake_catchment is not significant at p<0.05!
+NO3.5 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100)+
+                  s(forest_to_not, k=15)+s(Res_time_years)+
+                  s(runoff_mm.yr),
+                family=scat(),
+                type="response",
+                select=TRUE,
+                data=df1)
+gam.check(NO3.5)
+summary(NO3.5)
+
+plot(NO3.5, page=2, resid = TRUE)
+#Now everything looks good from summary and gam.check(). R-adj 0.854
 
 #would gamma be restricted to only positive?
 # hva betyr det for oss å bruke bs="ds"?
@@ -235,34 +259,41 @@ summary(TOC4)
 
 
 ```{r See effect frm changing certain settings: log}
+#The following was a poorer option to the log transformation of y
+
 #link = log. If to be used we need to remove log from y
-#TOC5 <- gam(X2019_DOC.C ~ s(latitude.x, longitude.x, k=100)+
-#                  s(forest_to_not)+s(peat)+s(Res_time_years)+
+#NO3.5x <- gam((X2019_NO3.N) ~ s(latitude.x, longitude.x, k=100)+
+#                  s(forest_to_not, k=15)+s(Res_time_years)+
 #                  s(runoff_mm.yr),
 #                family=scat(link="log"),
 #                type="response",
 #                select=TRUE,
 #                data=df1)
-#gam.check(TOC5)
-#summary(TOC5)
+#gam.check(NO3.5x)
+#summary(NO3.5x)
 #AIC(TOC4, TOC5)
 ```
 
 ```{r See effect frm changing certain settings: ds versus tp}
-#TOC6 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100, bs="ds")+
-#                  s(forest_to_not, bs="ds")+s(peat, bs="ds")+s(Res_time_years, bs="ds")+
-#                  s(runoff_mm.yr, bs="ds"),
-#                family=scat(),
+#The following did not improve
+#NO3.6 <- gam((X2019_NO3.N) ~ s(latitude.x, longitude.x, k=100)+
+#                  s(forest_to_not, k=15)+s(Res_time_years)+
+#                  s(runoff_mm.yr),
+#                family=scat(link="log"),
 #                type="response",
 #                select=TRUE,
 #                data=df1)
-#gam.check(TOC6)
-#summary(TOC4)
-#AIC(TOC4, TOC6)
+#gam.check(NO3.6)
+#summary(NO3.6)
+#AIC(NO3.5, NO3.6)
 #Takes so very long time to run with "ds"  in each. Did not wait for it to finish. 
 ```
 
 Make plot to evaluate the wiggliness. 
+```{r}
+library("gratia")
+draw(NO3.5, residuals = TRUE)
+```
 
 
 
@@ -288,19 +319,13 @@ TOC7 <- gam(log(X2019_DOC.C) ~ s(latitude.x, longitude.x, k=100)+
 #                data=df1)
 
 #interaction between res time and runoff is not significant
-gam.check(TOC7)
-summary(TOC7)
+gam.check(TOC8)
+summary(TOC8)
+
 AIC(TOC7, TOC5)
 #Model7, with interaction forest and peat, has much lower AIC than without
 plot(TOC7, page=2)
 ```
-
-Make plot to evaluate the wiggliness. 
-```{r}
-library("gratia")
-draw(TOC7, residuals = TRUE)
-```
-
 
 Plotting model in map with ggplot - have not managed successfully
 could be of use(?): https://mfasiolo.github.io/mgcViz/articles/mgcviz.html
